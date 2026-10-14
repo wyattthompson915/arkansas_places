@@ -1,0 +1,9 @@
+# Render blueprint: lets Render set the service up from this repo automatically.
+services:
+  - type: web
+    name: arkansas-places
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/meta

@@ -1,0 +1,116 @@
+ARKANSAS PLACES - PROCESS LOG
+Class project, built with Claude on Friday 9 October 2026
+=========================================================
+
+1. SCOPING
+   Request: a lightweight web app that works as a database of Arkansas counties and
+   municipalities (population, population change, demographics, voting history).
+   Claude proposed a static site; I chose instead:
+     - Stack: Python API + DuckDB database, plain JavaScript front end
+     - Data: Claude pulls it
+     - Extras: county map, charts on detail pages, compare view, plus the table
+   Known limit agreed up front: election results exist by county, not by city, so each
+   municipality shows its county's results.
+
+2. FINDING DATA
+   The build environment could only reach GitHub and the Python/npm package registries.
+   Tried and failed:
+     - Census API (api.census.gov): blocked from the build machine, and it now returns a
+       "Missing Key" page without an API key
+     - census.gov file downloads, data.census.gov, Harvard Dataverse (MIT Election Lab),
+       Wikipedia, data.gov, Arkansas GIS: all blocked
+     - Stanford CESTA historical city populations (on GitHub): reachable, but only 114
+       Arkansas places and nothing after 2010, so not used
+   Used, all from public GitHub repositories:
+     - evangambit/JsonOfCounties: county population 2010-2019, income, poverty, education
+     - tonmcg/US_County_Level_Election_Results_08-24: presidential results 2008-2024
+     - plotly/datasets: county boundary outlines
+   Municipal data could not be found on GitHub, so Claude asked me to download three
+   files from the Census Bureau.
+
+3. FIRST VERSION (counties only)
+   - etl/fetch_raw.py downloads the GitHub sources and keeps Arkansas rows
+   - etl/build_db.py loads them into DuckDB: tables places, population, demographics,
+     elections, plus a place_summary view
+   - app/main.py (FastAPI): /api/places, /api/places/{geoid}, /api/compare, /api/map,
+     /api/meta, and it serves the static site. Sort column is checked against a whitelist.
+   - static/: hash-routed single page with browse (map + table), place detail and compare
+     views. Line chart and county map are hand-written SVG, no chart library.
+   Checks: statewide 2019 population summed to 3,017,804; 2008, 2020 and 2024 vote totals
+   matched certified results; 2012 and 2016 came out about 1% low (a known gap in that
+   dataset). Pages were loaded in a headless browser and screenshotted; one layout bug
+   (table controls overflowing their card) was found and fixed.
+
+4. ADDING MUNICIPALITIES
+   Files I downloaded and attached:
+     - sub-est2024_5.csv: Vintage 2024 population estimates, 2020-2024, for the state,
+       75 counties and 500 incorporated places
+     - ACS 2019-2023 table DP05 for Arkansas places (zip; 625 places incl. 125 CDPs)
+     - ACS 2019-2023 table DP05 for Arkansas counties (single CSV in the transposed
+       layout: one row per measure, four columns per county)
+   Changes:
+     - build_db.py rewritten to load all three. The two DP05 files have different
+       layouts, so each has its own parser; the county one finds rows by section heading
+       and label rather than by position.
+     - Each municipality is assigned to the county holding most of its residents; 19
+       cross a county line and list the other counties.
+     - Demographics now come from the ACS for both counties and places: non-Hispanic
+       race groups (shares add to 100), median age, under 18, 65 and over.
+     - "Population change" redefined as 2020-2024 for every place so counties and cities
+       are comparable. Counties keep their 2010-2019 history on the chart.
+     - Table, tiles, map options and compare view updated; compare chart starts every
+       line at the first year all selected places share.
+   Checks:
+     - 75 counties and 500 municipalities loaded (313 cities, 187 towns), all matched to
+       a DP05 row
+     - County 2024 estimates sum to the state figure in the file (3,088,354)
+     - For every place, its county parts sum to its total
+     - Race shares sum to 100 for every place
+     - Spot checks: Fayetteville 103,134; Little Rock 204,774; Heber Springs 7,313
+     - Browser pass over browse, a city page and a mixed city/county compare: no errors
+
+5. HOSTING QUESTION
+   Asked whether to host on GitHub. Answer: the repo can live on GitHub, but GitHub Pages
+   only serves static files and this app needs its Python server. Options discussed: run
+   locally from the repo, deploy the server to a free Python host, or convert to a static
+   site that reads one exported JSON file. No change made yet.
+
+6. CITIES ON THE MAP, AND INCOME / POVERTY / EDUCATION FOR CITIES
+   Files I downloaded and attached:
+     - ACS 2019-2023 table DP03 (income, poverty) for Arkansas places and for counties
+     - ACS 2019-2023 table DP02 (education) for Arkansas places and for counties
+     - cb_2023_05_place_500k.zip: Census boundary shapefile for Arkansas places
+   Changes:
+     - New etl/convert_boundaries.py reads the shapefile (pyshp), keeps the 500
+       incorporated places, rounds coordinates to 4 decimals and writes
+       data/raw/ar_places.geojson (584 KB). Land area and a centre point come from it.
+     - build_db.py: income, poverty and education now come from DP03/DP02 for every
+       county and municipality, replacing the 2019 county-only figures. Income changed
+       from one "income per person" number to median household income plus per-capita
+       income.
+     - API: /api/map takes layer=counties|places; new /api/map/county/{fips}.
+     - Browse map: Counties / Cities & towns switch, zoom (buttons or scroll) and drag
+       to pan. In city view every place also gets a small dot, because many towns are
+       smaller than a pixel at statewide zoom. Presidential margin is hidden in city
+       view since votes are not reported by city.
+     - County pages show a mini-map of the county's cities; city pages show the city
+       highlighted inside its county.
+     - Density and income tiles now appear for cities too.
+   Checks:
+     - All 500 municipalities matched a boundary; all have land area and a centre point
+     - Spot checks against the source rows: Heber Springs $49,917 median household
+       income, 15.2% poverty, 15.1% bachelor's; Fayetteville $59,074 / 21.4% / 49.8%
+     - Browser test: switched to city view, zoomed, dragged (drag does not open a
+       place), clicked a city (opens it), came back (view kept), opened a city page, a
+       county page and a compare page: no errors
+
+7. KNOWN GAPS
+   - Median household income is withheld by the Census Bureau for 32 very small towns
+   - County outlines are coarser than city outlines, so edges do not line up exactly
+   - No place-name labels on the map; names appear on hover
+   - Map zoom was tested with a mouse only, not on a touch screen
+   - County population has a small break between the 2019 and 2020 estimate series
+   - ACS figures for very small towns carry large sampling error; Victoria (pop. 18) has
+     no survey data and Gilbert has no median age or income
+   - 2012 and 2016 vote totals are about 1% under certified counts
+   - Not tested: running on Windows/macOS, or on Python versions other than 3.13
