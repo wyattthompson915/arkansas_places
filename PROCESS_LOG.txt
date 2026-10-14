@@ -104,7 +104,52 @@ Class project, built with Claude on Friday 9 October 2026
        place), clicked a city (opens it), came back (view kept), opened a city page, a
        county page and a compare page: no errors
 
-7. KNOWN GAPS
+8. VERSION 1.1 UPDATES (14 October 2026, from static/v1.1/updates.txt)
+   Questions Claude asked first, and my answers:
+     - Shape of the new race graph: a donut chart, with the old race bars folded into
+       its key
+     - What replaces the presidential margin card on city pages: bachelor's degree or
+       higher, with the poverty rate underneath
+     - Statewide median age and income: the downloaded ACS files cover only counties and
+       places, so these are approximated from the counties for now (see TODO below)
+     - Map legend fix: seven groups, with the top fifth split further
+   Changes:
+     - City and town pages: presidential vote share chart and margin card removed, since
+       county results say little about a single city. Race and ethnicity is now a donut
+       chart in the vote chart's old spot.
+     - County pages: same donut; the vote share chart moved to the bottom, replacing the
+       presidential results by year table
+     - Home screen: new Arkansas dashboard above the map, built from the 75 counties:
+       six cards (population, change since 2020, median age, median household income,
+       people per sq. mile, 2024 presidential margin) and four charts (population,
+       presidential vote share, race and ethnicity, age / education / poverty)
+     - New /api/state endpoint. Population and votes are exact county sums. Survey
+       percentages and per-capita income are county figures weighted by population.
+       Median age and median household income are population-weighted averages of
+       county medians and are labelled "Approximate" on the page.
+     - Map colours: quantile maps now use 7 groups instead of 5. They split at the 20th,
+       40th, 60th, 80th, 90th and 95th percentiles, so only real outliers get the
+       darkest colour.
+     - The place page tiles and charts were made into shared functions, so the state
+       dashboard, county pages and city pages all use the same code
+   Checks:
+     - State population 2024: 3,088,354 (matches the state row in sub-est2024_5.csv);
+       2024 margin R+30.6
+     - Weighted estimates against published ACS state figures: median household income
+       $60,337 vs about $58,800, median age 38.7 vs about 38.5
+     - Jefferson County (20.6% bachelor's) moved from the darkest group to the 5th of 7.
+       Crittenden County (76 per sq. mi) is now in the 5th of 7; only Pulaski, Benton,
+       Washington and Sebastian are in the darkest.
+     - Browser pass over home, Jefferson County and Little Rock: no errors
+   Left unchanged (not in the update list):
+     - The browse table's "Pres. margin" column and the compare page still show a city's
+       county result, labelled as such
+   TODO:
+     - Download the state-level ACS 2019-2023 DP02, DP03 and DP05 for Arkansas and load
+       them, so the state dashboard uses exact published figures instead of estimates
+       made from the counties (WEIGHTED / STATE_APPROX in app/main.py)
+
+9. KNOWN GAPS
    - Median household income is withheld by the Census Bureau for 32 very small towns
    - County outlines are coarser than city outlines, so edges do not line up exactly
    - No place-name labels on the map; names appear on hover
@@ -113,4 +158,5 @@ Class project, built with Claude on Friday 9 October 2026
    - ACS figures for very small towns carry large sampling error; Victoria (pop. 18) has
      no survey data and Gilbert has no median age or income
    - 2012 and 2016 vote totals are about 1% under certified counts
+   - State median age and median household income are approximations (see TODO in 8)
    - Not tested: running on Windows/macOS, or on Python versions other than 3.13
