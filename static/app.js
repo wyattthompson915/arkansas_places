@@ -45,8 +45,13 @@ const COLUMNS = [
 ];
 
 async function renderBrowse() {
-  const [geo, counties] = await Promise.all([api("map"), api("places?kind=county&sort=name&order=asc")]);
+  const [geo, counties, st] = await Promise.all([api("map"), api("places?kind=county&sort=name&order=asc"), api("state")]);
   view.innerHTML = `
+    <section class="state">
+      <h1>Arkansas</h1>
+      <p class="sub">Statewide figures, summed or averaged from the 75 counties</p>
+      ${statTiles(st)}${statCharts(st)}
+    </section>
     <div class="grid browse">
       <section class="card map">
         <h2>Map</h2>
@@ -71,6 +76,8 @@ async function renderBrowse() {
         <div class="table-wrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
       </section>
     </div>`;
+
+  drawStatCharts(st);
 
   const metricSel = document.getElementById("metric");
   const paint = async () => {
@@ -150,13 +157,64 @@ function barList(items) {
 }
 const voteLegend = `<div class="legend"><span><i class="line" style="background:var(--gop)"></i>Republican</span>
   <span><i class="line" style="background:var(--dem)"></i>Democratic</span></div>`;
+const tile = (label, value, note = "", cls = "") => `<div class="card tile"><div class="label">${label}</div>
+  <div class="value ${cls}">${value}</div><div class="note">${note}</div></div>`;
+const isMuni = p => p.kind === "city" || p.kind === "town";
+const approx = (p, key) => (p.approx || []).includes(key);
+
+/* The six cards across the top of the state dashboard and of every place page. Votes are only
+   reported by county, so cities and towns show education in the last card instead. */
+function statTiles(p) {
+  const last = p.elections[p.elections.length - 1];
+  return `<div class="tiles">
+    ${tile("Population", num(p.population), `${p.pop_year ?? ""} estimate`)}
+    ${tile(`Change since ${p.base_year ?? ""}`, signed(p.pop_change_pct), `from ${num(p.base_population)}`, trend(p.pop_change_pct))}
+    ${tile("Median age", p.median_age == null ? "–" : p.median_age.toFixed(1),
+           approx(p, "median_age") ? "Approximate: average of county medians" : `${pctFmt(p.pct_65plus)} are 65 or older`)}
+    ${tile("Median household income", money(p.median_household_income),
+           approx(p, "median_household_income") ? "Approximate: average of county medians" : `${money(p.per_capita_income)} per person`)}
+    ${tile("People per sq. mile", num(p.density),
+           p.land_sqmi == null ? "" : (p.land_sqmi < 10 ? p.land_sqmi.toFixed(1) : num(p.land_sqmi)) + " sq. mi of land")}
+    ${isMuni(p) ? tile("Bachelor's degree or higher", pctFmt(p.pct_bachelors), `${pctFmt(p.poverty_rate)} below poverty line`)
+                : tile(`${last ? last.year : ""} presidential margin`, margin(p.gop_margin), p.kind === "state" ? "Statewide result" : "")}
+  </div>`;
+}
+
+/* Chart cards: population, race, age/education/poverty and, except for cities and towns, the vote share. */
+function statCharts(p, extra = "") {
+  const survey = "Share of residents, 2019–2023 survey average" + (p.kind === "state" ? ", weighted from county figures" : "");
+  return `<div class="grid two">
+    <section class="card"><h2>Population</h2><p class="sub">Annual July 1 estimates</p><div id="pop"></div></section>
+    <section class="card"><h2>Race and ethnicity</h2><p class="sub">${survey}</p><div id="race"></div>
+      <p class="sub" style="margin:10px 0 0">Race groups exclude Hispanic residents, so the shares add to 100%.</p></section>
+    <section class="card"><h2>Age, education and poverty</h2><p class="sub">${survey}</p>
+      ${barList([["Under 18", p.pct_under18], ["65 and over", p.pct_65plus],
+                 ["Bachelor's or higher (age 25+)", p.pct_bachelors], ["Below poverty line", p.poverty_rate]])}</section>
+    ${isMuni(p) ? "" : `<section class="card"><h2>Presidential vote share</h2>
+      <p class="sub">${p.kind === "state" ? "Statewide results" : "County results"}</p><div id="votes"></div>${voteLegend}</section>`}
+    ${extra}
+  </div>`;
+}
+
+function drawStatCharts(p) {
+  lineChart(document.getElementById("pop"),
+    [{ name: "Population", color: "var(--s1)", points: p.population_series.map(r => ({ x: r.year, y: r.population })) }]);
+  donutChart(document.getElementById("race"), [
+    { name: "White", value: p.pct_white, color: "var(--r1)" }, { name: "Black", value: p.pct_black, color: "var(--r2)" },
+    { name: "Hispanic or Latino", value: p.pct_hispanic, color: "var(--r3)" }, { name: "Asian", value: p.pct_asian, color: "var(--r4)" },
+    { name: "Other or multiple", value: p.pct_other, color: "var(--r5)" }]);
+  const votes = document.getElementById("votes");
+  if (votes) lineChart(votes, [
+    { name: "Rep.", color: "var(--gop)", points: p.elections.map(e => ({ x: e.year, y: e.gop_pct })) },
+    { name: "Dem.", color: "var(--dem)", points: p.elections.map(e => ({ x: e.year, y: e.dem_pct })) },
+  ], { format: v => v.toFixed(0) + "%", tipFormat: v => v.toFixed(1) + "%" });
+}
 
 async function renderPlace(id) {
   let p;
   try { p = await api("places/" + id); }
   catch { view.innerHTML = `<p class="empty">No place found for “${esc(id)}”. <a href="#/">Back to all places</a></p>`; return; }
   const isCounty = p.kind === "county";
-  const last = p.elections[p.elections.length - 1];
   view.innerHTML = `
     <div class="crumbs"><a href="#/">All places</a> › ${isCounty ? "" : `<a href="#/place/${p.county_fips}">${esc(p.county_name)}</a> › `}${esc(p.name)}</div>
     <div class="head">
@@ -166,55 +224,17 @@ async function renderPlace(id) {
       <span class="spacer"></span>
       <button id="cmp" class="primary"></button>
     </div>
-    <div class="tiles">
-      <div class="card tile"><div class="label">Population</div><div class="value">${num(p.population)}</div>
-        <div class="note">${p.pop_year ?? ""} estimate</div></div>
-      <div class="card tile"><div class="label">Change since ${p.base_year ?? ""}</div>
-        <div class="value ${trend(p.pop_change_pct)}">${signed(p.pop_change_pct)}</div>
-        <div class="note">from ${num(p.base_population)}</div></div>
-      <div class="card tile"><div class="label">Median age</div><div class="value">${p.median_age == null ? "–" : p.median_age.toFixed(1)}</div>
-        <div class="note">${pctFmt(p.pct_65plus)} are 65 or older</div></div>
-      <div class="card tile"><div class="label">Median household income</div><div class="value">${money(p.median_household_income)}</div>
-        <div class="note">${money(p.per_capita_income)} per person</div></div>
-      <div class="card tile"><div class="label">People per sq. mile</div><div class="value">${num(p.density)}</div>
-        <div class="note">${p.land_sqmi == null ? "" : (p.land_sqmi < 10 ? p.land_sqmi.toFixed(1) : num(p.land_sqmi)) + " sq. mi of land"}</div></div>
-      <div class="card tile"><div class="label">${last ? last.year : ""} presidential margin</div>
-        <div class="value">${margin(p.gop_margin)}</div>
-        <div class="note">${isCounty ? "" : esc(p.county_name) + " result"}</div></div>
-    </div>
-    <div class="grid two">
-      <section class="card"><h2>Population</h2><p class="sub">Annual July 1 estimates</p><div id="pop"></div></section>
-      <section class="card"><h2>Presidential vote share</h2>
-        <p class="sub">${isCounty ? "County results" : "Results for " + esc(p.county_name) + "; votes are not reported by city"}</p>
-        <div id="votes"></div>${voteLegend}</section>
-      <section class="card"><h2>Race and ethnicity</h2><p class="sub">Share of residents, 2019–2023 survey average</p>
-        ${barList([["White", p.pct_white], ["Black", p.pct_black], ["Hispanic or Latino", p.pct_hispanic],
-                   ["Asian", p.pct_asian], ["Other or multiple", p.pct_other]])}
-        <p class="sub" style="margin:10px 0 0">Race groups exclude Hispanic residents, so the bars add to 100%.</p></section>
-      <section class="card"><h2>Age, education and poverty</h2>
-        <p class="sub">Share of residents, 2019–2023 survey average</p>
-        ${barList([["Under 18", p.pct_under18], ["65 and over", p.pct_65plus],
-                   ["Bachelor's or higher (age 25+)", p.pct_bachelors], ["Below poverty line", p.poverty_rate]])}</section>
-      <section class="card"><h2>Presidential results by year</h2><p class="sub">Votes cast</p>
-        <div class="table-wrap"><table><thead><tr><th class="left">Year</th><th>Republican</th><th>Democratic</th><th>Total</th><th>Margin</th></tr></thead>
-        <tbody>${p.elections.map(e => `<tr><td class="left">${e.year}</td><td>${num(e.gop)} (${pctFmt(e.gop_pct)})</td>
-          <td>${num(e.dem)} (${pctFmt(e.dem_pct)})</td><td>${num(e.total)}</td><td>${margin(e.gop_margin)}</td></tr>`).join("")}</tbody></table></div></section>
-      ${isCounty ? `<section class="card"><h2>Cities and towns</h2>
+    ${statTiles(p)}
+    ${statCharts(p, isCounty ? `<section class="card"><h2>Cities and towns</h2>
         <p class="sub">Municipalities based in this county; the map also shows any that cross in from a neighbour</p>
         <div id="locator" class="locator"></div>
         ${p.municipalities.length ? `<ul class="munis">${p.municipalities.map(m =>
           `<li><a href="#/place/${m.geoid}">${esc(m.name)}</a> <span class="muted">${num(m.population)}</span></li>`).join("")}</ul>`
           : '<p class="muted">No incorporated cities or towns.</p>'}</section>`
       : `<section class="card"><h2>Location</h2><p class="sub">${esc(p.name)} within ${esc(p.county_name)}; click another place to open it</p>
-        <div id="locator" class="locator"></div></section>`}
-    </div>`;
+        <div id="locator" class="locator"></div></section>`)}`;
 
-  lineChart(document.getElementById("pop"),
-    [{ name: "Population", color: "var(--s1)", points: p.population_series.map(r => ({ x: r.year, y: r.population })) }]);
-  lineChart(document.getElementById("votes"), [
-    { name: "Rep.", color: "var(--gop)", points: p.elections.map(e => ({ x: e.year, y: e.gop_pct })) },
-    { name: "Dem.", color: "var(--dem)", points: p.elections.map(e => ({ x: e.year, y: e.dem_pct })) },
-  ], { format: v => v.toFixed(0) + "%", tipFormat: v => v.toFixed(1) + "%" });
+  drawStatCharts(p);
 
   api("map/county/" + p.county_fips).then(data => {
     const box = document.getElementById("locator");

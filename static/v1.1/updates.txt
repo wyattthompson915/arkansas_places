@@ -1,0 +1,22 @@
+10/14
+
+City Voting Patterns 
+- remove city presidential vote share and margin from individual city pages
+    - using county voting data is very inaccurate for this
+    - keep these features for counties
+    - replace presidential vote share graph with a graph of racial percentage demographics in the city 
+        - add this graph to county page as well and just move the presidential vote share graph to the bottom, replacing
+            the presidential results by year table
+
+Overall State Statistics
+- on the home screen, add a dashboard for the state's statistics similar to the county screens
+    - cards
+        - pop, pop change, median age, median household income, people per sq mile, 2024 presidential margin
+    - graphs 
+        - population, presidential vote share, race & ethnicity, age education & poverty
+
+Map Color Schemes
+- add more legend buckets in the top end -- too much grouping
+    - ex: Jefferson County is in the darkest group for bachelor's degree+ despite only being 20% and below average
+    - ex: Crittenden County is in the darkest group for population density despite it being 76, well below counties
+         such as Pulaski and Benton that have several magnitudes higher density

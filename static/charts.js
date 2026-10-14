@@ -1,4 +1,4 @@
-/* Small hand-rolled SVG charts: a line chart and a county map. No libraries. */
+/* Small hand-rolled SVG charts: a line chart, a donut and the maps. No libraries. */
 const SVG = "http://www.w3.org/2000/svg";
 const tip = () => document.getElementById("tooltip");
 
@@ -104,8 +104,41 @@ function lineChart(container, series, opts = {}) {
   });
 }
 
+/* slices: [{name, value, color}], values are percentages of one whole. Ring on the left, key on the right. */
+function donutChart(container, slices) {
+  container.classList.add("donut");
+  container.innerHTML = "";
+  slices = slices.filter(s => s.value != null);
+  const total = slices.reduce((a, s) => a + s.value, 0);
+  if (!total) { container.innerHTML = '<p class="empty">No data</p>'; return; }
+
+  const C = 90, R = 86, r = 54;
+  const pt = (a, rad) => `${(C + rad * Math.cos(a)).toFixed(2)},${(C + rad * Math.sin(a)).toFixed(2)}`;
+  const svg = el("svg", { viewBox: "0 0 180 180", role: "img" }, container);
+  let a0 = -Math.PI / 2;
+  for (const s of slices) {
+    if (s.value <= 0) continue;
+    // A single slice of 100% would be a zero-length arc, so stop just short of the full turn.
+    const a1 = a0 + Math.min(s.value / total, 0.99999) * 2 * Math.PI, big = a1 - a0 > Math.PI ? 1 : 0;
+    const path = el("path", { fill: s.color,
+      d: `M${pt(a0, R)}A${R},${R} 0 ${big} 1 ${pt(a1, R)}L${pt(a1, r)}A${r},${r} 0 ${big} 0 ${pt(a0, r)}Z` }, svg);
+    path.addEventListener("mousemove", evt => showTip(
+      `<div class="row"><span><i style="background:${s.color}"></i>${s.name}</span><span>${s.value.toFixed(1)}%</span></div>`, evt));
+    path.addEventListener("mouseleave", hideTip);
+    a0 = a1;
+  }
+  const key = document.createElement("div");
+  key.className = "key";
+  key.innerHTML = slices.map(s => `<i style="background:${s.color}"></i><span>${s.name}</span>
+    <span class="v">${s.value.toFixed(1)}%</span>`).join("");
+  container.appendChild(key);
+}
+
 /* ---- Maps ---- */
-const BLUES = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"];
+// Seven steps: equal-count groups up to the 80th percentile, then the top fifth split
+// three ways (80-90, 90-95, 95+) so a few outliers do not share a colour with the merely high.
+const BLUES = ["#dbe9fb", "#b2d0f5", "#86b6ef", "#5598e8", "#2f78d8", "#1c5cab", "#0d366b"];
+const BREAKS = [0.2, 0.4, 0.6, 0.8, 0.9, 0.95];
 const MAP_METRICS = {
   population:     { label: "Population", fmt: v => v.toLocaleString(), scale: "quantile" },
   pop_change_pct: { label: "Population change, 2020–24", fmt: v => (v > 0 ? "+" : "") + v + "%",
@@ -144,12 +177,12 @@ function fitProjection(features, W, pad = 0) {
   return { W, H, xy, path };
 }
 
-/* Colour scale for one metric over a set of values: fixed bins, or five equal-count groups. */
+/* Colour scale for one metric over a set of values: fixed bins, or percentile groups (BREAKS). */
 function colorScale(metric, values) {
   let { bins, colors, binLabels: labels } = metric;
   if (metric.scale === "quantile") {
     const v = values.filter(x => x != null).sort((a, b) => a - b);
-    bins = [1, 2, 3, 4].map(i => v[Math.floor(v.length * i / 5)]);
+    bins = BREAKS.map(q => v[Math.floor(v.length * q)]);
     colors = BLUES;
     const edges = [v[0], ...bins, v[v.length - 1]];
     labels = colors.map((_, i) => `${metric.fmt(edges[i])} – ${metric.fmt(edges[i + 1])}`);

@@ -90,6 +90,40 @@ def compare(ids: str = Query(..., description="comma-separated geoids, up to 3")
     return [place_detail(g) for g in ids.split(",")[:3] if g]
 
 
+# ACS measures averaged across counties, weighted by population. Shares and per-capita income
+# come out close to the published state figure; the two medians are only approximations.
+# TODO: replace with the state-level ACS 2019-2023 DP02/DP03/DP05 rows once downloaded.
+WEIGHTED = ["pct_white", "pct_black", "pct_hispanic", "pct_asian", "pct_other", "median_age",
+            "pct_under18", "pct_65plus", "median_household_income", "per_capita_income",
+            "poverty_rate", "pct_bachelors"]
+STATE_APPROX = ["median_age", "median_household_income"]
+
+
+@app.get("/api/state")
+def state():
+    """Statewide figures built from the 75 county rows."""
+    weighted = ", ".join(f"round(sum({c} * population::DOUBLE) FILTER ({c} IS NOT NULL) / "
+                         f"sum(population) FILTER ({c} IS NOT NULL), 1) AS {c}" for c in WEIGHTED)
+    s = rows(f"""
+        SELECT 'Arkansas' AS name, 'state' AS kind, sum(population) AS population, max(pop_year) AS pop_year,
+               sum(base_population) AS base_population, max(base_year) AS base_year,
+               round(100.0 * (sum(population) - sum(base_population)) / sum(base_population), 1) AS pop_change_pct,
+               sum(land_sqmi) AS land_sqmi, round(sum(population) / sum(land_sqmi), 1) AS density, {weighted}
+        FROM place_summary WHERE kind = 'county'""")[0]
+    # Every county has every year, so the sums are true state totals.
+    s["population_series"] = rows(
+        "SELECT year, sum(population) AS population FROM population JOIN places USING (geoid) "
+        "WHERE kind = 'county' GROUP BY year HAVING count(*) = 75 ORDER BY year")
+    s["elections"] = rows(
+        "SELECT year, sum(dem) AS dem, sum(gop) AS gop, sum(total) AS total, "
+        "round(100.0 * sum(dem) / sum(total), 1) AS dem_pct, round(100.0 * sum(gop) / sum(total), 1) AS gop_pct, "
+        "round(100.0 * (sum(gop) - sum(dem)) / sum(total), 1) AS gop_margin "
+        "FROM elections GROUP BY year ORDER BY year")
+    s["gop_margin"] = s["elections"][-1]["gop_margin"] if s["elections"] else None
+    s["approx"] = STATE_APPROX
+    return s
+
+
 def with_stats(features, where, params=()):
     """Attach each shape's place_summary row as its GeoJSON properties."""
     stats = {r["geoid"]: r for r in rows(f"SELECT * FROM place_summary WHERE {where}", params)}
