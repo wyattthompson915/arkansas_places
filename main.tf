@@ -84,10 +84,9 @@ resource "azurerm_linux_web_app" "app" {
 
   site_config {
     always_on        = var.app_service_sku != "F1"
-    app_command_line = "gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:8000"
 
     application_stack {
-      python_version = "3.12"
+      node_version = "20-lts"
     }
   }
 
