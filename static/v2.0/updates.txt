@@ -1,0 +1,18 @@
+10/15
+
+Footer
+    - not sticky
+    - note current website version (this will be v2.0)
+    - "Made by Wyatt Thompson"
+
+Compare Presidential Vote Fix
+    - when cities are included in the comparison tab, do not include the Presidential Margin graph
+    - TBD on what to replace it with 
+
+Updates To Arkansas, County Pages, and City Pages 
+    - new graphs:
+        - age distribution (histogram)
+        - median household income distribution (histogram)
+    - add high school graduate % to "Age, education, and poverty" card
+
+NOT DONE YET, JUST NEED TO MERGE
